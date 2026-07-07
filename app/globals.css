@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+html { -webkit-tap-highlight-color: transparent; }
+body { background: #0B0E14; color: #E9EDF6; }
+::selection { background: rgba(125, 162, 255, 0.35); }
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
