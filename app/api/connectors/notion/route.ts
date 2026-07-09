@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 
-/* Notion OAuth token exchange — SERVER-SIDE ONLY.
-   Full setup steps: docs/CONNECTORS.md
-   TODO:
-   1. GET  -> redirect to Notion's authorize URL (NOTION_CLIENT_ID)
-   2. Handle callback: exchange code using basic auth (client_id:client_secret)
-   3. Store the access token server-side, let the user pick a database
-   4. Add a /sync handler mapping database rows -> ExternalItem[]
-      (Title, Due date, Status, Estimate, Priority) */
-export async function GET() {
-  const configured = !!(process.env.NOTION_CLIENT_ID && process.env.NOTION_CLIENT_SECRET);
-  return NextResponse.json(
-    { configured, message: configured ? "OAuth flow not yet implemented — see TODOs in this route." : "Set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET, then implement the flow. See docs/CONNECTORS.md." },
-    { status: 501 },
-  );
+/* Step 1 of Notion OAuth: redirect to Notion's authorize screen. */
+export async function GET(req: Request) {
+  const clientId = process.env.NOTION_CLIENT_ID;
+  if (!clientId) {
+    return NextResponse.json({ error: "NOTION_CLIENT_ID is not set. Add it in Vercel → Settings → Environment Variables." }, { status: 501 });
+  }
+  const origin = new URL(req.url).origin;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: "code",
+    owner: "user",
+    redirect_uri: `${origin}/api/connectors/notion/callback`,
+  });
+  return NextResponse.redirect(`https://api.notion.com/v1/oauth/authorize?${params}`);
 }

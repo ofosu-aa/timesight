@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
 
-/* Google Calendar OAuth token exchange — SERVER-SIDE ONLY.
-   Secrets (GOOGLE_OAUTH_CLIENT_SECRET) must never reach the browser.
-   Full setup steps: docs/CONNECTORS.md
-   TODO:
-   1. GET  -> redirect to Google's consent screen (client_id, scopes: calendar.readonly)
-   2. Handle callback: exchange code for tokens using the client secret
-   3. Store encrypted tokens server-side (Firestore, keyed by uid)
-   4. Add a /sync handler that lists events and returns ExternalItem[] */
-export async function GET() {
-  const configured = !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
-  return NextResponse.json(
-    { configured, message: configured ? "OAuth flow not yet implemented — see TODOs in this route." : "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, then implement the flow. See docs/CONNECTORS.md." },
-    { status: 501 },
-  );
+/* Step 1 of Google Calendar OAuth: redirect the user to Google's consent
+   screen. Only the public client ID is used here. */
+export async function GET(req: Request) {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  if (!clientId) {
+    return NextResponse.json({ error: "GOOGLE_OAUTH_CLIENT_ID is not set. Add it in Vercel → Settings → Environment Variables." }, { status: 501 });
+  }
+  const origin = new URL(req.url).origin;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${origin}/api/connectors/google/callback`,
+    response_type: "code",
+    access_type: "offline",          // ask for a refresh token
+    prompt: "consent",               // guarantees refresh token on repeat connects
+    scope: "openid email https://www.googleapis.com/auth/calendar.events",
+    state: "timesight",
+  });
+  return NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 }

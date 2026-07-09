@@ -61,6 +61,7 @@ function SettingsView() {
 
       <Section title="Notifications">
         <p className="text-sm text-muted mb-3">Gentle reminders only — like when your estimate is up. Never spam.</p>
+        <p className="text-xs text-faint mb-3 leading-relaxed">On iPhone: install TimeSight to your Home Screen first (Settings → Install on iPhone), then enable here. Requires iOS 16.4+. Notifications fire while the app is open or in the background with a timer running.</p>
         <div className="flex items-center gap-3">
           <Btn small variant={s.notificationsEnabled ? "good" : "subtle"} onClick={async () => {
             if (s.notificationsEnabled) { app.updateSettings({ notificationsEnabled: false }); return; }

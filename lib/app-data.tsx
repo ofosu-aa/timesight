@@ -70,15 +70,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notified = useRef(false);
-  const repo = repositoryFor(!!user?.isGuest);
+  /* dataRef always holds the LATEST state synchronously, so mutations that
+     run back-to-back in the same tick (e.g. onboarding: addTask → startTask →
+     updateSettings) each build on the previous one instead of a stale render
+     snapshot. This is the fix for the "first task doesn't start timing" bug. */
+  const dataRef = useRef<AppData | null>(null);
 
   useEffect(() => {
     let live = true;
-    if (!user) { setData(null); return; }
-    repo.load(user.uid).then((d) => { if (live) setData(d); });
+    if (!user) { setData(null); dataRef.current = null; return; }
+    repositoryFor(!!user.isGuest).load(user.uid).then((d) => {
+      if (live) { dataRef.current = d; setData(d); }
+    });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+  }, [user?.uid, user?.isGuest]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -86,12 +92,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = useCallback((next: AppData) => {
+    dataRef.current = next;           // synchronous — chained mutations see it
     setData(next);
     if (!user) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    const repo = repositoryFor(!!user.isGuest);
     saveTimer.current = setTimeout(() => { repo.save(user.uid, next).catch(() => {}); }, 300);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+  }, [user]);
+
+  /** Latest state for mutations — never a stale render closure. */
+  const cur = (): AppData => dataRef.current ?? EMPTY_DATA;
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -115,12 +125,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (activeRemainingMs > 0) notified.current = false;
   }, [now, active, activeRemainingMs, checkIn, finishSummary, data?.settings.notificationsEnabled]);
 
-  if (!user || !data) {
-    // Provider still mounts so hooks below screens are stable; screens gate on data themselves.
-  }
-
-  const d = data ?? EMPTY_DATA;
-
   const makeTask = (t: TaskInput): Task => ({
     id: uid(), title: t.title.trim(), normalizedTitle: normalize(t.title),
     category: t.category || "", priority: t.priority || "medium", energyLevel: t.energyLevel || "",
@@ -130,147 +134,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     routineId: null, notes: t.notes || "", source: t.source || "manual",
   });
 
-  const value: AppCtx = {
-    data, now, activeElapsedMs, activeTargetMin, activeRemainingMs,
-    checkIn, setCheckIn, finishSummary, toast, flash,
-    hasDemo: d.sessions.some((s) => s.demo) || d.routines.some((r) => r.demo),
-
-    dismissFinishSummary() {
-      const goRoutine = finishSummary?.nextRoutineTask;
-      setFinishSummary(null);
-      if (goRoutine && d.active) {
-        // Don't count summary-reading time against the next routine step.
-        persist({ ...d, active: { ...d.active, startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0 } });
-      }
-    },
-
-    addTask(t) {
-      const task = makeTask(t);
-      persist({ ...d, tasks: [task, ...d.tasks] });
-      flash(`Added "${task.title}"`);
-      return task;
-    },
-    updateTask(id, patch) {
-      persist({ ...d, tasks: d.tasks.map((t) => t.id === id ? { ...t, ...patch, normalizedTitle: patch.title ? normalize(patch.title) : t.normalizedTitle, updatedAt: Date.now() } : t) });
-    },
-    deleteTask(id) { persist({ ...d, tasks: d.tasks.filter((t) => t.id !== id) }); },
-    duplicateTask(id) {
-      const t = d.tasks.find((x) => x.id === id);
-      if (!t) return;
-      persist({ ...d, tasks: [{ ...t, id: uid(), status: "pending", createdAt: Date.now(), completedAt: null, actualMinutes: null }, ...d.tasks] });
-      flash(`Duplicated "${t.title}"`);
-    },
-    completeWithoutTiming(id) {
-      const t = d.tasks.find((x) => x.id === id);
-      persist({ ...d, tasks: d.tasks.map((x) => x.id === id ? { ...x, status: "completed", completedAt: Date.now() } : x) });
-      if (t) flash(`"${t.title}" marked complete`);
-    },
-
-    startTask(task) {
-      const session: ActiveSession = {
-        taskId: task.id, taskTitle: task.title, estimatedMinutes: task.estimatedMinutes,
-        startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0, extraMinutes: 0, keepTiming: false, routine: null,
-      };
-      setCheckIn(false);
-      persist({ ...d, active: session, tasks: d.tasks.map((t) => t.id === task.id ? { ...t, status: "active" } : t) });
-    },
-    pauseResume() {
-      if (!d.active) return;
-      const a = d.active;
-      persist({ ...d, active: a.pausedAt
-        ? { ...a, pausedTotalMs: a.pausedTotalMs + (Date.now() - a.pausedAt), pausedAt: null }
-        : { ...a, pausedAt: Date.now() } });
-    },
-    extend(mins) {
-      if (!d.active) return;
-      persist({ ...d, active: { ...d.active, extraMinutes: d.active.extraMinutes + mins } });
-      setCheckIn(false);
-      flash(`Added ${mins} minutes — keep going`);
-    },
-    keepTiming() {
-      if (!d.active) return;
-      persist({ ...d, active: { ...d.active, keepTiming: true } });
-      setCheckIn(false);
-    },
-
-    finishTask() { completeActive(false); },
-    skipRoutineStep() { completeActive(true); },
-
-    cancelSession() {
-      if (!d.active) return;
-      persist({ ...d, active: null, tasks: d.tasks.map((t) => t.id === d.active!.taskId ? { ...t, status: "pending" } : t) });
-      setCheckIn(false);
-      flash("Session cancelled — no time recorded");
-    },
-
-    saveRoutine(r) {
-      const existing = r.id ? d.routines.find((x) => x.id === r.id) : null;
-      if (existing) {
-        persist({ ...d, routines: d.routines.map((x) => x.id === r.id ? { ...existing, ...r, updatedAt: Date.now() } as Routine : x) });
-      } else {
-        persist({ ...d, routines: [{ id: uid(), name: r.name, description: r.description || "", tasks: r.tasks, createdAt: Date.now(), updatedAt: Date.now() }, ...d.routines] });
-      }
-      flash("Routine saved");
-    },
-    deleteRoutine(id) { persist({ ...d, routines: d.routines.filter((r) => r.id !== id) }); },
-
-    startRoutine(routine) {
-      if (!routine.tasks.length) { flash("Add at least one step first"); return; }
-      const rt = routine.tasks[0];
-      const runId = uid();
-      const est = predictFor(rt.title, d.sessions)?.predictedMinutes ?? rt.estimatedMinutes;
-      const task = { ...makeTask({ title: rt.title, estimatedMinutes: est, category: rt.category, source: "routine" }), routineId: routine.id, status: "active" as const };
-      const run: RoutineRun = {
-        id: runId, routineId: routine.id, routineName: routine.name, startedAt: Date.now(), endedAt: null,
-        estimatedTotalMinutes: routine.tasks.reduce((a, t) => a + t.estimatedMinutes, 0),
-        actualTotalMinutes: 0, completedTaskCount: 0, skippedTaskCount: 0,
-      };
-      persist({
-        ...d, tasks: [task, ...d.tasks], routineRuns: [run, ...d.routineRuns],
-        active: {
-          taskId: task.id, taskTitle: task.title, estimatedMinutes: est,
-          startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0, extraMinutes: 0, keepTiming: false,
-          routine: { routineId: routine.id, routineName: routine.name, runId, index: 0, total: routine.tasks.length },
-        },
-      });
-    },
-
-    updateSettings(patch) { persist({ ...d, settings: { ...d.settings, ...patch } }); },
-    setConnector(state) {
-      const rest = d.connectors.filter((c) => c.provider !== state.provider);
-      persist({ ...d, connectors: [...rest, state] });
-    },
-    addExternalItems(items) {
-      const seen = new Set(d.externalItems.map((e) => e.provider + e.externalId));
-      const fresh = items.filter((i) => !seen.has(i.provider + i.externalId));
-      persist({ ...d, externalItems: [...fresh, ...d.externalItems] });
-      flash(`Imported ${fresh.length} item${fresh.length === 1 ? "" : "s"}`);
-    },
-    convertExternalItem(item) {
-      const task = makeTask({ title: item.title, estimatedMinutes: item.durationMinutes || 30, source: "connector" });
-      persist({
-        ...d, tasks: [task, ...d.tasks],
-        externalItems: d.externalItems.map((e) => e.id === item.id ? { ...e, importedTaskId: task.id } : e),
-      });
-      flash(`"${item.title}" added to today`);
-    },
-
-    loadDemo() {
-      const demo = makeDemoData();
-      persist({ ...d, sessions: [...d.sessions, ...demo.sessions], routines: [...demo.routines, ...d.routines] });
-      flash("Demo data loaded — explore Insights and predictions");
-    },
-    clearDemo() {
-      persist({ ...d, sessions: d.sessions.filter((s) => !s.demo), routines: d.routines.filter((r) => !r.demo) });
-      flash("Demo data cleared");
-    },
-    clearAllData() {
-      persist({ ...EMPTY_DATA, settings: { ...d.settings } });
-      flash("All data cleared");
-    },
-  };
-
   function completeActive(skipped: boolean) {
+    const d = cur();
     if (!d.active) return;
     const a = d.active;
     const endedAt = Date.now();
@@ -289,7 +154,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     let tasks = d.tasks.map((t) => t.id === a.taskId
       ? { ...t, status: (skipped ? "skipped" : "completed") as Task["status"], completedAt: endedAt, actualMinutes: skipped ? null : actual }
       : t);
-    let sessions = skipped ? d.sessions : [...d.sessions, session];
+    const sessions = skipped ? d.sessions : [...d.sessions, session];
     let routineRuns = d.routineRuns;
     let nextActive: ActiveSession | null = null;
     let nextRoutineTask: string | null = null;
@@ -321,10 +186,192 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     persist({ ...d, tasks, sessions, routineRuns, active: nextActive });
     setCheckIn(false);
+
+    /* Notion write-back: if this task was imported from Notion, record the
+       actual duration on the Notion page. Fire-and-forget — timing data is
+       already saved locally regardless of whether Notion is reachable. */
+    if (!skipped) {
+      const ext = d.externalItems.find((e) => e.provider === "notion" && e.importedTaskId === a.taskId);
+      const notionToken = d.connectors.find((c) => c.provider === "notion")?.tokens?.accessToken;
+      if (ext && notionToken) {
+        import("./connectors/notion")
+          .then((m) => m.writeBackToNotion(notionToken, ext.externalId, actual, a.estimatedMinutes))
+          .then(() => flash("Actual time written back to Notion"))
+          .catch(() => { /* Notion unreachable — local data is the source of truth */ });
+      }
+    }
+
     if (!skipped) setFinishSummary({ session, nextRoutineTask, routineDone: !!a.routine && !nextActive });
     else if (nextActive) flash(`Skipped — next: ${nextActive.taskTitle}`);
     else flash("Step skipped");
   }
+
+  const value: AppCtx = {
+    data, now, activeElapsedMs, activeTargetMin, activeRemainingMs,
+    checkIn, setCheckIn, finishSummary, toast, flash,
+    hasDemo: (data ?? EMPTY_DATA).sessions.some((s) => s.demo) || (data ?? EMPTY_DATA).routines.some((r) => r.demo),
+
+    dismissFinishSummary() {
+      const d = cur();
+      const goRoutine = finishSummary?.nextRoutineTask;
+      setFinishSummary(null);
+      if (goRoutine && d.active) {
+        // Don't count summary-reading time against the next routine step.
+        persist({ ...d, active: { ...d.active, startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0 } });
+      }
+    },
+
+    addTask(t) {
+      const d = cur();
+      const task = makeTask(t);
+      persist({ ...d, tasks: [task, ...d.tasks] });
+      flash(`Added "${task.title}"`);
+      return task;
+    },
+    updateTask(id, patch) {
+      const d = cur();
+      persist({ ...d, tasks: d.tasks.map((t) => t.id === id ? { ...t, ...patch, normalizedTitle: patch.title ? normalize(patch.title) : t.normalizedTitle, updatedAt: Date.now() } : t) });
+    },
+    deleteTask(id) {
+      const d = cur();
+      persist({ ...d, tasks: d.tasks.filter((t) => t.id !== id) });
+    },
+    duplicateTask(id) {
+      const d = cur();
+      const t = d.tasks.find((x) => x.id === id);
+      if (!t) return;
+      persist({ ...d, tasks: [{ ...t, id: uid(), status: "pending", createdAt: Date.now(), completedAt: null, actualMinutes: null }, ...d.tasks] });
+      flash(`Duplicated "${t.title}"`);
+    },
+    completeWithoutTiming(id) {
+      const d = cur();
+      const t = d.tasks.find((x) => x.id === id);
+      persist({ ...d, tasks: d.tasks.map((x) => x.id === id ? { ...x, status: "completed", completedAt: Date.now() } : x) });
+      if (t) flash(`"${t.title}" marked complete`);
+    },
+
+    startTask(task) {
+      const d = cur();
+      const session: ActiveSession = {
+        taskId: task.id, taskTitle: task.title, estimatedMinutes: task.estimatedMinutes,
+        startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0, extraMinutes: 0, keepTiming: false, routine: null,
+      };
+      setCheckIn(false);
+      persist({ ...d, active: session, tasks: d.tasks.map((t) => t.id === task.id ? { ...t, status: "active" } : t) });
+    },
+    pauseResume() {
+      const d = cur();
+      if (!d.active) return;
+      const a = d.active;
+      persist({ ...d, active: a.pausedAt
+        ? { ...a, pausedTotalMs: a.pausedTotalMs + (Date.now() - a.pausedAt), pausedAt: null }
+        : { ...a, pausedAt: Date.now() } });
+    },
+    extend(mins) {
+      const d = cur();
+      if (!d.active) return;
+      persist({ ...d, active: { ...d.active, extraMinutes: d.active.extraMinutes + mins } });
+      setCheckIn(false);
+      flash(`Added ${mins} minutes — keep going`);
+    },
+    keepTiming() {
+      const d = cur();
+      if (!d.active) return;
+      persist({ ...d, active: { ...d.active, keepTiming: true } });
+      setCheckIn(false);
+    },
+
+    finishTask() { completeActive(false); },
+    skipRoutineStep() { completeActive(true); },
+
+    cancelSession() {
+      const d = cur();
+      if (!d.active) return;
+      persist({ ...d, active: null, tasks: d.tasks.map((t) => t.id === d.active!.taskId ? { ...t, status: "pending" } : t) });
+      setCheckIn(false);
+      flash("Session cancelled — no time recorded");
+    },
+
+    saveRoutine(r) {
+      const d = cur();
+      const existing = r.id ? d.routines.find((x) => x.id === r.id) : null;
+      if (existing) {
+        persist({ ...d, routines: d.routines.map((x) => x.id === r.id ? { ...existing, ...r, updatedAt: Date.now() } as Routine : x) });
+      } else {
+        persist({ ...d, routines: [{ id: uid(), name: r.name, description: r.description || "", tasks: r.tasks, createdAt: Date.now(), updatedAt: Date.now() }, ...d.routines] });
+      }
+      flash("Routine saved");
+    },
+    deleteRoutine(id) {
+      const d = cur();
+      persist({ ...d, routines: d.routines.filter((r) => r.id !== id) });
+    },
+
+    startRoutine(routine) {
+      const d = cur();
+      if (!routine.tasks.length) { flash("Add at least one step first"); return; }
+      const rt = routine.tasks[0];
+      const runId = uid();
+      const est = predictFor(rt.title, d.sessions)?.predictedMinutes ?? rt.estimatedMinutes;
+      const task = { ...makeTask({ title: rt.title, estimatedMinutes: est, category: rt.category, source: "routine" }), routineId: routine.id, status: "active" as const };
+      const run: RoutineRun = {
+        id: runId, routineId: routine.id, routineName: routine.name, startedAt: Date.now(), endedAt: null,
+        estimatedTotalMinutes: routine.tasks.reduce((a, t) => a + t.estimatedMinutes, 0),
+        actualTotalMinutes: 0, completedTaskCount: 0, skippedTaskCount: 0,
+      };
+      persist({
+        ...d, tasks: [task, ...d.tasks], routineRuns: [run, ...d.routineRuns],
+        active: {
+          taskId: task.id, taskTitle: task.title, estimatedMinutes: est,
+          startedAt: Date.now(), pausedAt: null, pausedTotalMs: 0, extraMinutes: 0, keepTiming: false,
+          routine: { routineId: routine.id, routineName: routine.name, runId, index: 0, total: routine.tasks.length },
+        },
+      });
+    },
+
+    updateSettings(patch) {
+      const d = cur();
+      persist({ ...d, settings: { ...d.settings, ...patch } });
+    },
+    setConnector(state) {
+      const d = cur();
+      const rest = d.connectors.filter((c) => c.provider !== state.provider);
+      persist({ ...d, connectors: [...rest, state] });
+    },
+    addExternalItems(items) {
+      const d = cur();
+      const seen = new Set(d.externalItems.map((e) => e.provider + e.externalId));
+      const fresh = items.filter((i) => !seen.has(i.provider + i.externalId));
+      persist({ ...d, externalItems: [...fresh, ...d.externalItems] });
+      flash(`Imported ${fresh.length} item${fresh.length === 1 ? "" : "s"}`);
+    },
+    convertExternalItem(item) {
+      const d = cur();
+      const task = makeTask({ title: item.title, estimatedMinutes: item.durationMinutes || 30, source: "connector" });
+      persist({
+        ...d, tasks: [task, ...d.tasks],
+        externalItems: d.externalItems.map((e) => e.id === item.id ? { ...e, importedTaskId: task.id } : e),
+      });
+      flash(`"${item.title}" added to today`);
+    },
+
+    loadDemo() {
+      const d = cur();
+      const demo = makeDemoData();
+      persist({ ...d, sessions: [...d.sessions, ...demo.sessions], routines: [...demo.routines, ...d.routines] });
+      flash("Demo data loaded — explore Insights and predictions");
+    },
+    clearDemo() {
+      const d = cur();
+      persist({ ...d, sessions: d.sessions.filter((s) => !s.demo), routines: d.routines.filter((r) => !r.demo) });
+      flash("Demo data cleared");
+    },
+    clearAllData() {
+      const d = cur();
+      persist({ ...EMPTY_DATA, settings: { ...d.settings } });
+      flash("All data cleared");
+    },
+  };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

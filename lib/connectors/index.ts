@@ -29,12 +29,15 @@ export const mockProvider: ConnectorProvider = {
 export const googleCalendarProvider: ConnectorProvider = {
   id: "google-calendar",
   name: "Google Calendar",
-  description: "Import calendar events and get realistic-buffer warnings against your task history.",
-  availability: "needs_oauth",
+  description: "Two-way: import your events with realistic-buffer warnings, and push your TimeSight day plan into your calendar.",
+  availability: "ready",
   async connect() {
-    return { ok: false, message: "Google Calendar needs OAuth configuration (server-side client secret). See docs/CONNECTORS.md — the token exchange endpoint is stubbed at /api/connectors/google." };
+    // Real OAuth: server route redirects to Google's consent screen.
+    window.location.href = "/api/connectors/google";
+    return { ok: true, message: "Redirecting to Google…" };
   },
   async disconnect() {},
+  // Google sync needs tokens and is handled by the Connectors screen via lib/connectors/google.ts.
   async sync() { return []; },
 };
 
@@ -42,12 +45,14 @@ export const googleCalendarProvider: ConnectorProvider = {
 export const notionProvider: ConnectorProvider = {
   id: "notion",
   name: "Notion",
-  description: "Import tasks from a Notion database and (later) write actual durations back.",
-  availability: "needs_oauth",
+  description: "Two-way: import tasks from a Notion database, and when you finish timing one, TimeSight writes the actual duration back to the Notion page.",
+  availability: "ready",
   async connect() {
-    return { ok: false, message: "Notion needs OAuth configuration (server-side client secret). See docs/CONNECTORS.md — the token exchange endpoint is stubbed at /api/connectors/notion." };
+    window.location.href = "/api/connectors/notion";
+    return { ok: true, message: "Redirecting to Notion…" };
   },
   async disconnect() {},
+  // Notion sync needs a token + database and is handled by the Connectors screen.
   async sync() { return []; },
 };
 

@@ -38,7 +38,7 @@ function Today() {
   const realisticMin = pendingToday.reduce((a, t) => a + (predictFor(t.title, sessions)?.predictedMinutes ?? t.estimatedMinutes), 0);
   const accToday = todaySessions.length ? Math.round((todaySessions.filter((s) => s.wasFinishedOnEstimate).length / todaySessions.length) * 100) : null;
   const quickPred = quick.trim().length > 1 ? predictFor(quick, sessions) : null;
-  const upcomingExternal = externalItems.filter((e) => !e.importedTaskId && e.startTime && e.startTime > Date.now() - 3600000).slice(0, 3);
+  const upcomingExternal = externalItems.filter((e) => !e.importedTaskId && (e.startTime == null || e.startTime > Date.now() - 3600000)).slice(0, 4);
 
   const submitQuick = () => {
     if (!quick.trim()) return;
@@ -98,14 +98,14 @@ function Today() {
 
       {upcomingExternal.length > 0 && (
         <Card className="p-4 mb-4">
-          <p className="text-xs font-semibold uppercase tracking-wider mb-2.5 text-faint">From your calendar</p>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-2.5 text-faint">From your calendar &amp; Notion</p>
           <div className="space-y-2">
             {upcomingExternal.map((e) => (
               <div key={e.id} className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink truncate">{e.title}</p>
                   <p className="text-xs text-muted">
-                    {e.startTime ? new Date(e.startTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""} · {fmtMin(e.durationMinutes)}
+                    {e.provider === "notion" ? "Notion" : e.startTime ? new Date(e.startTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""} · {fmtMin(e.durationMinutes)}
                     {(() => { const p = predictFor(e.title, sessions); return p && e.durationMinutes && p.predictedMinutes > e.durationMinutes + 5 ? ` — history says ~${fmtMin(p.predictedMinutes)}` : ""; })()}
                   </p>
                 </div>

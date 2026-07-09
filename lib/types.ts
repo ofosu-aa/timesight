@@ -125,6 +125,12 @@ export interface ConnectorState {
   status: "connected" | "disconnected" | "needs_setup";
   connectedAt: number | null;
   lastSyncAt: number | null;
+  /** OAuth tokens, stored in the user's own protected Firestore space.
+      The OAuth client SECRET never appears here — refresh happens server-side. */
+  tokens?: { accessToken: string; refreshToken: string | null; expiresAt: number } | null;
+  accountEmail?: string | null;
+  /** Provider-specific settings, e.g. which Notion database to sync. */
+  config?: { databaseId?: string; databaseName?: string } | null;
 }
 
 export interface AppData {
