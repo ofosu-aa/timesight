@@ -6,7 +6,7 @@ import {
 } from "./types";
 import { uid, normalize } from "./time";
 import { predictFor, isAccurate } from "./predictions";
-import { repositoryFor } from "./data";
+import { repositoryFor, SyncStatus } from "./data";
 import { useAuth } from "./auth-context";
 import { notifyEstimateExpired } from "./notifications";
 
@@ -28,6 +28,7 @@ interface AppCtx {
   dismissFinishSummary(): void;
   toast: string | null;
   flash(msg: string): void;
+  syncStatus: SyncStatus;
   addTask(t: TaskInput): Task;
   updateTask(id: string, patch: Partial<Task>): void;
   deleteTask(id: string): void;
@@ -68,6 +69,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [checkIn, setCheckIn] = useState(false);
   const [finishSummary, setFinishSummary] = useState<FinishSummary | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("local");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notified = useRef(false);
   /* dataRef always holds the LATEST state synchronously, so mutations that
@@ -79,10 +81,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let live = true;
     if (!user) { setData(null); dataRef.current = null; return; }
-    repositoryFor(!!user.isGuest).load(user.uid).then((d) => {
+    const repo = repositoryFor(!!user.isGuest, setSyncStatus);
+    repo.load(user.uid).then((d) => {
       if (live) { dataRef.current = d; setData(d); }
     });
-    return () => { live = false; };
+    /* Real-time: apply changes made on OTHER devices/tabs as they happen —
+       start a timer on your phone, watch it tick on your laptop. */
+    const unsubscribe = repo.subscribe?.(user.uid, (remote) => {
+      if (!live) return;
+      dataRef.current = remote;
+      setData(remote);
+    });
+    return () => { live = false; unsubscribe?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, user?.isGuest]);
 
@@ -96,7 +106,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setData(next);
     if (!user) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    const repo = repositoryFor(!!user.isGuest);
+    const repo = repositoryFor(!!user.isGuest, setSyncStatus);
     saveTimer.current = setTimeout(() => { repo.save(user.uid, next).catch(() => {}); }, 300);
   }, [user]);
 
@@ -208,7 +218,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const value: AppCtx = {
     data, now, activeElapsedMs, activeTargetMin, activeRemainingMs,
-    checkIn, setCheckIn, finishSummary, toast, flash,
+    checkIn, setCheckIn, finishSummary, toast, flash, syncStatus,
     hasDemo: (data ?? EMPTY_DATA).sessions.some((s) => s.demo) || (data ?? EMPTY_DATA).routines.some((r) => r.demo),
 
     dismissFinishSummary() {

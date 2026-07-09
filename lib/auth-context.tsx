@@ -3,8 +3,9 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, sendPasswordResetEmail, updateProfile, GoogleAuthProvider, signInWithPopup,
-  deleteUser, User as FbUser,
+  signInWithRedirect, getRedirectResult, deleteUser, User as FbUser,
 } from "firebase/auth";
+import { isIOS, isStandalone } from "./platform";
 import { getFirebaseAuth, firebaseConfigured } from "./firebase";
 import { localRepository } from "./data";
 import { firestoreRepository } from "./data/firestoreRepository";
@@ -42,6 +43,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+    /* Mobile Google sign-in uses a full-page redirect (popups are unreliable
+       on iOS and blocked in installed PWAs). This completes that round-trip
+       and runs guest-data migration for it. */
+    getRedirectResult(auth).then((cred) => {
+      if (cred?.user) {
+        window.localStorage.removeItem(GUEST_FLAG);
+        void migrateGuestData(cred.user.uid);
+      }
+    }).catch(() => { /* no pending redirect */ });
+
     const unsub = onAuthStateChanged(auth, (fb: FbUser | null) => {
       if (fb) {
         setUser({ uid: fb.uid, email: fb.email, displayName: fb.displayName, isGuest: false });
@@ -94,7 +105,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     async loginWithGoogle() {
       const auth = requireAuth();
-      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      if (isIOS() || isStandalone()) {
+        // Redirect flow: leaves the page, returns via getRedirectResult above.
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      const cred = await signInWithPopup(auth, provider);
       window.localStorage.removeItem(GUEST_FLAG);
       await migrateGuestData(cred.user.uid);
     },

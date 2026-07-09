@@ -1,8 +1,8 @@
 "use client";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, ListTodo, Timer, Repeat, Sparkles, MessageCircle, Plug, Settings, Clock, Check, ArrowRight } from "lucide-react";
+import { Home, ListTodo, Timer, Repeat, Sparkles, MessageCircle, Plug, Settings, Clock, Check, ArrowRight, Smartphone, MoreHorizontal, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useApp } from "@/lib/app-data";
 import { Btn, Modal, Card, LoadingState } from "./ui";
@@ -27,6 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const app = useApp();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   /* Protected routes: signed out → welcome; not onboarded → onboarding. */
   useEffect(() => {
@@ -77,12 +78,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {n.href === "/timer" && active && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full animate-pulse bg-sage" />}
             </Link>
           ))}
-          <Link href="/settings" className="flex flex-col items-center gap-1 py-2.5 px-1 min-w-[48px]">
-            <Settings size={20} className={pathname.startsWith("/settings") || pathname.startsWith("/connectors") ? "text-accent" : "text-faint"} />
+          <button onClick={() => setMoreOpen(true)} className="flex flex-col items-center gap-1 py-2.5 px-1 min-w-[48px]">
+            <MoreHorizontal size={20} className={pathname.startsWith("/settings") || pathname.startsWith("/connectors") || pathname.startsWith("/install") ? "text-accent" : "text-faint"} />
             <span className="text-[10px] font-medium text-faint">More</span>
-          </Link>
+          </button>
         </div>
       </nav>
+
+      {moreOpen && (
+        <div className="md:hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end" onClick={(e) => e.target === e.currentTarget && setMoreOpen(false)}>
+          <div className="w-full rounded-t-3xl border-t border-line bg-surface p-5" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-bold text-ink">More</p>
+              <button onClick={() => setMoreOpen(false)} className="p-1.5 text-faint"><X size={20} /></button>
+            </div>
+            {[
+              { href: "/connectors", label: "Connectors", desc: "Google Calendar, Notion, Apple Calendar", icon: Plug },
+              { href: "/settings", label: "Settings", desc: "Account, coach tone, notifications, data", icon: Settings },
+              { href: "/install", label: "Install on iPhone", desc: "Add TimeSight to your Home Screen", icon: Smartphone },
+            ].map((m) => (
+              <Link key={m.href} href={m.href} onClick={() => setMoreOpen(false)}
+                className="flex items-center gap-3.5 px-3 py-3.5 rounded-xl active:bg-raised">
+                <div className="w-10 h-10 rounded-xl bg-raised flex items-center justify-center shrink-0"><m.icon size={18} className="text-accent" /></div>
+                <div>
+                  <p className="font-semibold text-[15px] text-ink">{m.label}</p>
+                  <p className="text-xs text-muted">{m.desc}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <GlobalModals />
       {app.toast && (

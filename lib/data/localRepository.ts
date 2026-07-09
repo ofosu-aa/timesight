@@ -7,6 +7,7 @@ function hydrate(raw: string | null): AppData {
   if (!raw) return structuredClone(EMPTY_DATA);
   try {
     const d = JSON.parse(raw);
+    delete (d as Record<string, unknown>)._rev;
     return { ...structuredClone(EMPTY_DATA), ...d, settings: { ...DEFAULT_SETTINGS, ...(d.settings || {}) } };
   } catch { return structuredClone(EMPTY_DATA); }
 }
@@ -23,5 +24,15 @@ export const localRepository: Repository = {
   async clear(uid) {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(key(uid));
+  },
+  /* Cross-tab live sync for guest mode: the browser fires `storage` events
+     in OTHER tabs when localStorage changes. */
+  subscribe(uid, cb) {
+    if (typeof window === "undefined") return () => {};
+    const handler = (e: StorageEvent) => {
+      if (e.key === key(uid) && e.newValue) cb(hydrate(e.newValue));
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
   },
 };

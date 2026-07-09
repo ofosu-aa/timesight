@@ -31,6 +31,13 @@ function SettingsView() {
       <Section title="Profile">
         <p className="text-sm text-ink font-medium">{user.displayName || "You"}</p>
         <p className="text-sm text-muted">{user.isGuest ? "Guest — data is stored on this device only. Create an account to sync." : user.email}</p>
+        {!user.isGuest && (
+          <p className={`text-xs mt-1.5 font-medium ${app.syncStatus === "synced" ? "text-sage" : app.syncStatus === "error" ? "text-amber" : "text-faint"}`}>
+            {app.syncStatus === "synced" ? "● Cloud sync active — your devices share this data live"
+              : app.syncStatus === "error" ? "● Saving on this device only — cloud sync is failing. Usually this means the Firestore database or its security rules aren't set up yet (see docs/FIREBASE_SETUP.md)."
+              : "● Checking sync…"}
+          </p>
+        )}
         {user.isGuest && <Link href="/signup"><Btn small variant="subtle" className="mt-3">Create account &amp; keep my data</Btn></Link>}
       </Section>
 
