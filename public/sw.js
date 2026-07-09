@@ -36,3 +36,27 @@ self.addEventListener("fetch", (e) => {
     }))
   );
 });
+
+/* Focus (or open) the app when a notification is tapped. */
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      const timerUrl = new URL("/timer", self.location.origin).href;
+      for (const c of list) {
+        if ("focus" in c) { c.navigate(timerUrl); return c.focus(); }
+      }
+      return self.clients.openWindow("/timer");
+    })
+  );
+});
+
+/* Web Push hook — fires only once a push backend (FCM) is configured.
+   Local timer notifications do not depend on this. */
+self.addEventListener("push", (e) => {
+  if (!e.data) return;
+  try {
+    const { title, body } = e.data.json();
+    e.waitUntil(self.registration.showNotification(title || "TimeSight", { body: body || "", icon: "/icons/icon-192.png", tag: "timesight-push" }));
+  } catch { /* ignore malformed pushes */ }
+});
