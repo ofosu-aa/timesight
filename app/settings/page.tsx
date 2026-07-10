@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, CalendarPlus, Bell, LogOut, Trash2, Plug, Smartphone } from "lucide-react";
+import { Download, CalendarPlus, Bell, LogOut, Trash2, Plug, Smartphone, Users, Copy, RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Card, Btn, Field, inputCls, Modal } from "@/components/ui";
 import { useApp } from "@/lib/app-data";
@@ -80,6 +80,33 @@ function SettingsView() {
           </Btn>
           {!notificationsSupported() && <p className="text-xs text-faint">Not supported in this browser.</p>}
         </div>
+      </Section>
+
+      <Section title="Friends & sharing">
+        {user.isGuest ? (
+          <p className="text-sm text-muted">Sharing needs an account, since friends follow your stats across devices.</p>
+        ) : s.sharingEnabled ? (
+          <div className="space-y-3.5">
+            <p className="text-sm text-sage font-medium">Sharing is on. Friends see weekly aggregates and tasks you explicitly share — never your task list.</p>
+            <Field label="Display name (what friends see)">
+              <input value={s.shareName} onChange={(e) => app.updateSettings({ shareName: e.target.value })} className={inputCls} placeholder="Your name" />
+            </Field>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-faint mb-1.5">Your friend code</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg font-bold tabular-nums text-accent">{s.shareCode || "—"}</span>
+                <Btn small variant="subtle" onClick={() => { navigator.clipboard?.writeText(s.shareCode); app.flash("Code copied"); }}><Copy size={13} /> Copy</Btn>
+                <Btn small variant="ghost" onClick={app.regenerateShareCode}><RefreshCw size={13} /> Regenerate</Btn>
+              </div>
+            </div>
+            <Btn small variant="danger" onClick={app.disableSharing}>Turn off &amp; erase shared data</Btn>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm text-muted mb-3">Off. Nothing about this account is visible to anyone.</p>
+            <Btn small variant="subtle" onClick={app.enableSharing}><Users size={14} /> Turn on sharing</Btn>
+          </div>
+        )}
       </Section>
 
       <Section title="Data">

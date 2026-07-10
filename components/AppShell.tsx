@@ -2,9 +2,10 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, ListTodo, Timer, Repeat, Sparkles, MessageCircle, Plug, Settings, Clock, Check, ArrowRight, Smartphone, MoreHorizontal, X } from "lucide-react";
+import { Home, ListTodo, Timer, Repeat, Sparkles, MessageCircle, Plug, Settings, Clock, Check, ArrowRight, Smartphone, MoreHorizontal, X, Users, Share2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useApp } from "@/lib/app-data";
+import { sharePost } from "@/lib/social";
 import { Btn, Modal, Card, LoadingState } from "./ui";
 import { fmtMin } from "@/lib/time";
 import { predictFor } from "@/lib/predictions";
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/coach", label: "Coach", icon: MessageCircle },
 ];
 const NAV_DESKTOP_EXTRA = [
+  { href: "/friends", label: "Friends", icon: Users },
   { href: "/connectors", label: "Connectors", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -79,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
           <button onClick={() => setMoreOpen(true)} className="flex flex-col items-center gap-1 py-2.5 px-1 min-w-[48px]">
-            <MoreHorizontal size={20} className={pathname.startsWith("/settings") || pathname.startsWith("/connectors") || pathname.startsWith("/install") ? "text-accent" : "text-faint"} />
+            <MoreHorizontal size={20} className={pathname.startsWith("/settings") || pathname.startsWith("/connectors") || pathname.startsWith("/install") || pathname.startsWith("/friends") ? "text-accent" : "text-faint"} />
             <span className="text-[10px] font-medium text-faint">More</span>
           </button>
         </div>
@@ -93,7 +95,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button onClick={() => setMoreOpen(false)} className="p-1.5 text-faint"><X size={20} /></button>
             </div>
             {[
-              { href: "/connectors", label: "Connectors", desc: "Google Calendar, Notion, Apple Calendar", icon: Plug },
+              { href: "/friends", label: "Friends", desc: "Weekly progress with people who get it", icon: Users },
+              { href: "/connectors", label: "Connectors", desc: "Google Calendar and Notion", icon: Plug },
               { href: "/settings", label: "Settings", desc: "Account, coach tone, notifications, data", icon: Settings },
               { href: "/install", label: "Install on iPhone", desc: "Add TimeSight to your Home Screen", icon: Smartphone },
             ].map((m) => (
@@ -151,7 +154,10 @@ function GlobalModals() {
 
 function FinishModal({ onDone }: { onDone: () => void }) {
   const app = useApp();
+  const { user } = useAuth();
   const fs = app.finishSummary;
+  const [shareTitle, setShareTitle] = useState(fs?.session.taskTitle ?? "");
+  const [shared, setShared] = useState(false);
   if (!fs || !app.data) return null;
   const s = fs.session;
   const early = s.estimateErrorMinutes < 0, exact = s.wasFinishedOnEstimate;
@@ -172,6 +178,29 @@ function FinishModal({ onDone }: { onDone: () => void }) {
         {pred && <p className="text-center text-sm mt-1.5 text-muted">{pred.explanation} {pred.label}.</p>}
       </Card>
       {fs.routineDone && <p className="text-center text-sm mb-4 font-medium text-sage">Routine complete — nice work.</p>}
+      {app.data.settings.sharingEnabled && user && !user.isGuest && (
+        <div className="rounded-2xl border border-line p-3.5 mb-4">
+          {shared ? (
+            <p className="text-sm text-sage font-medium text-center">Shared with your friends.</p>
+          ) : (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-faint">Share with friends (optional)</p>
+              <input value={shareTitle} onChange={(e) => setShareTitle(e.target.value)}
+                className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none border border-line bg-raised text-ink mb-2" />
+              <p className="text-[11px] text-faint mb-2.5">Friends will see this title, the time, and whether it was on estimate. Edit it to whatever you&apos;re comfortable sharing.</p>
+              <Btn small variant="subtle" className="w-full" onClick={async () => {
+                try {
+                  await sharePost(user.uid, app.data!.settings.shareName || "TimeSight user", {
+                    title: shareTitle.trim() || "A focused block",
+                    minutes: s.actualMinutes, estimatedMinutes: s.estimatedMinutes, onEstimate: s.wasFinishedOnEstimate,
+                  });
+                  setShared(true);
+                } catch { app.flash("Couldn't share right now"); }
+              }}><Share2 size={13} /> Share this</Btn>
+            </>
+          )}
+        </div>
+      )}
       <Btn className="w-full" onClick={onDone}>
         {fs.nextRoutineTask ? <>Next: {fs.nextRoutineTask} <ArrowRight size={16} /></> : "Done"}
       </Btn>

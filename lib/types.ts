@@ -14,6 +14,10 @@ export interface UserSettings {
   defaultBreakMinutes: number;
   notificationsEnabled: boolean;
   onboardingCompleted: boolean;
+  /** Social: opt-in. When off, nothing about this account is visible to anyone. */
+  sharingEnabled: boolean;
+  shareName: string;
+  shareCode: string;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -24,6 +28,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   defaultBreakMinutes: 5,
   notificationsEnabled: false,
   onboardingCompleted: false,
+  sharingEnabled: false,
+  shareName: "",
+  shareCode: "",
 };
 
 export interface Task {
@@ -133,6 +140,12 @@ export interface ConnectorState {
   config?: { databaseId?: string; databaseName?: string } | null;
 }
 
+export interface FriendLink {
+  uid: string;
+  name: string;
+  addedAt: number;
+}
+
 export interface AppData {
   tasks: Task[];
   sessions: TimeSession[];
@@ -142,11 +155,12 @@ export interface AppData {
   settings: UserSettings;
   externalItems: ExternalItem[];
   connectors: ConnectorState[];
+  friends: FriendLink[];
 }
 
 export const EMPTY_DATA: AppData = {
   tasks: [], sessions: [], routines: [], routineRuns: [],
-  active: null, settings: { ...DEFAULT_SETTINGS }, externalItems: [], connectors: [],
+  active: null, settings: { ...DEFAULT_SETTINGS }, externalItems: [], connectors: [], friends: [],
 };
 
 export interface Prediction {

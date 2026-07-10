@@ -73,4 +73,7 @@ export const comingSoon = [
   { id: "google-fit", name: "Google Fit", description: "Energy-aware planning from activity data." },
 ];
 
-export const providers: ConnectorProvider[] = [mockProvider, googleCalendarProvider, notionProvider, appleCalendarProvider];
+/* Apple Calendar is intentionally NOT listed: Apple has no web API, so a
+   connector card overpromises. The .ics export remains in Settings → Data;
+   real EventKit sync arrives with the native iOS wrapper. */
+export const providers: ConnectorProvider[] = [mockProvider, googleCalendarProvider, notionProvider];

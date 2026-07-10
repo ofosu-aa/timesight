@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import {
   AppData, EMPTY_DATA, Task, Routine, ActiveSession, TimeSession, UserSettings,
-  RoutineRun, ExternalItem, ConnectorState, Priority, Energy,
+  RoutineRun, ExternalItem, ConnectorState, Priority, Energy, FriendLink,
 } from "./types";
 import { uid, normalize } from "./time";
 import { predictFor, isAccurate } from "./predictions";
@@ -52,6 +52,11 @@ interface AppCtx {
   clearDemo(): void;
   clearAllData(): void;
   hasDemo: boolean;
+  enableSharing(): void;
+  disableSharing(): void;
+  regenerateShareCode(): void;
+  addFriend(f: FriendLink): void;
+  removeFriend(uid: string): void;
 }
 
 export interface FinishSummary {
@@ -134,6 +139,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
     if (activeRemainingMs > 0) notified.current = false;
   }, [now, active, activeRemainingMs, checkIn, finishSummary, data?.settings.notificationsEnabled]);
+
+  /* Social: republish aggregate weekly stats whenever timing data changes
+     (debounced). Only aggregates leave the account — never task titles. */
+  useEffect(() => {
+    if (!user || user.isGuest || !data?.settings.sharingEnabled || !data.settings.shareCode) return;
+    const t = setTimeout(() => {
+      import("./social")
+        .then((m) => m.publishProfile(user.uid, data.settings.shareName, data.settings.shareCode, data))
+        .catch(() => { /* offline — next change retries */ });
+    }, 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, data?.sessions.length, data?.settings.sharingEnabled, data?.settings.shareName]);
 
   const makeTask = (t: TaskInput): Task => ({
     id: uid(), title: t.title.trim(), normalizedTitle: normalize(t.title),
@@ -380,6 +398,47 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const d = cur();
       persist({ ...EMPTY_DATA, settings: { ...d.settings } });
       flash("All data cleared");
+    },
+
+    enableSharing() {
+      if (!user || user.isGuest) { flash("Sharing needs an account"); return; }
+      const d = cur();
+      const code = d.settings.shareCode || ("TS-" + uid().slice(0, 5).toUpperCase());
+      const name = d.settings.shareName || user.displayName || "TimeSight user";
+      persist({ ...d, settings: { ...d.settings, sharingEnabled: true, shareCode: code, shareName: name } });
+      import("./social")
+        .then((m) => m.publishProfile(user.uid, name, code, cur()))
+        .then(() => flash("Sharing is on — your friend code is ready"))
+        .catch(() => flash("Sharing saved — will publish when back online"));
+    },
+    disableSharing() {
+      if (!user) return;
+      const d = cur();
+      const code = d.settings.shareCode || null;
+      persist({ ...d, settings: { ...d.settings, sharingEnabled: false } });
+      import("./social")
+        .then((m) => m.unpublishProfile(user.uid, code))
+        .then(() => flash("Sharing off — your profile and shared posts were removed"))
+        .catch(() => flash("Sharing off — cleanup will finish when back online"));
+    },
+    regenerateShareCode() {
+      if (!user || user.isGuest) return;
+      const d = cur();
+      import("./social").then(async (m) => {
+        const code = await m.rotateFriendCode(user.uid, d.settings.shareCode || null);
+        const now = cur();
+        persist({ ...now, settings: { ...now.settings, shareCode: code } });
+        flash("New friend code generated — old one no longer works");
+      }).catch(() => flash("Couldn't regenerate right now"));
+    },
+    addFriend(f) {
+      const d = cur();
+      if (d.friends.some((x) => x.uid === f.uid)) return;
+      persist({ ...d, friends: [...d.friends, f] });
+    },
+    removeFriend(fuid) {
+      const d = cur();
+      persist({ ...d, friends: d.friends.filter((x) => x.uid !== fuid) });
     },
   };
 
